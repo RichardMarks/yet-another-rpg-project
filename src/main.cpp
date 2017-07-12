@@ -1,8 +1,17 @@
 #include <iostream>
 #include <SDL.h>
 
+#ifdef IS_DEBUG
 static const unsigned SCREEN_WIDTH = 1920;
 static const unsigned SCREEN_HEIGHT = 1080;
+static const unsigned WINDOW_WIDTH = 1920 / 2;
+static const unsigned WINDOW_HEIGHT = 1080 / 2;
+#else
+static const unsigned SCREEN_WIDTH = 1920;
+static const unsigned SCREEN_HEIGHT = 1080;
+static const unsigned WINDOW_WIDTH = 1920;
+static const unsigned WINDOW_HEIGHT = 1080;
+#endif
 
 class Game {
   public:
@@ -47,9 +56,13 @@ bool Game::preload() {
   atexit(SDL_Quit);
 
   if (SDL_CreateWindowAndRenderer(
-    SCREEN_WIDTH,
-    SCREEN_HEIGHT,
+    WINDOW_WIDTH,
+    WINDOW_HEIGHT,
+#ifdef IS_DEBUG
+    SDL_WINDOW_RESIZABLE,
+#else
     SDL_WINDOW_FULLSCREEN_DESKTOP,
+#endif
     &sdlWindow,
     &sdlRenderer
   ) != 0) {
