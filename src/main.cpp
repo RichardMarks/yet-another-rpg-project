@@ -435,6 +435,126 @@ void Sprite::draw(SDL_Renderer* renderer) {
 }
 
 
+class NinePatch {
+  private:
+    SDL_Texture* sharedTexture;
+    SDL_Rect sourceRect;
+    SDL_Rect renderRect;
+
+  public:
+    unsigned sliceWidth;
+    unsigned sliceHeight;
+
+    NinePatch(SDL_Texture* texture);
+    NinePatch(SDL_Texture* texture, unsigned sliceWidth, unsigned sliceHeight);
+    ~NinePatch();
+
+    void draw(SDL_Renderer* renderer, SDL_Rect* destination);
+};
+
+NinePatch::NinePatch(SDL_Texture* texture) {
+  int w, h;
+  SDL_QueryTexture(texture, NULL, NULL, &w, &h);
+  sliceWidth = w / 3;
+  sliceHeight = h / 3;
+  sharedTexture = texture;
+  renderRect.w = sliceWidth;
+  renderRect.h = sliceHeight;
+  sourceRect.w = sliceWidth;
+  sourceRect.h = sliceHeight;
+}
+
+NinePatch::NinePatch(SDL_Texture* texture, unsigned sliceWidth, unsigned sliceHeight) {
+  sharedTexture = texture;
+  this->sliceWidth = sliceWidth;
+  this->sliceHeight = sliceHeight;
+  renderRect.w = sliceWidth;
+  renderRect.h = sliceHeight;
+  sourceRect.w = sliceWidth;
+  sourceRect.h = sliceHeight;
+}
+
+NinePatch::~NinePatch() {
+
+}
+
+void NinePatch::draw(SDL_Renderer* renderer, SDL_Rect* destination) {
+  // draw the center fill
+  renderRect.x = destination->x + sliceWidth;
+  renderRect.y = destination->y + sliceHeight;
+  renderRect.w = (destination->w - (2 * sliceWidth));
+  renderRect.h = (destination->h - (2 * sliceHeight));
+  sourceRect.x = sliceWidth;
+  sourceRect.y = sliceHeight;
+  SDL_RenderCopy(renderer, sharedTexture, &sourceRect, &renderRect);
+
+  // draw the top
+  renderRect.x = destination->x + sliceWidth;
+  renderRect.y = destination->y;
+  renderRect.w = (destination->w - (2 * sliceWidth));
+  renderRect.h = sliceHeight;
+  sourceRect.x = sliceWidth;
+  sourceRect.y = 0;
+  SDL_RenderCopy(renderer, sharedTexture, &sourceRect, &renderRect);
+
+  // draw the bottom
+  renderRect.x = destination->x + sliceWidth;
+  renderRect.y = destination->y + (destination->h - sliceHeight);
+  renderRect.w = (destination->w - (2 * sliceWidth));
+  renderRect.h = sliceHeight;
+  sourceRect.x = sliceWidth;
+  sourceRect.y = sliceHeight * 2;
+  SDL_RenderCopy(renderer, sharedTexture, &sourceRect, &renderRect);
+
+  // draw the left
+  renderRect.x = destination->x;
+  renderRect.y = destination->y + sliceHeight;
+  renderRect.w = sliceWidth;
+  renderRect.h = (destination->h - (2 * sliceHeight));
+  sourceRect.x = 0;
+  sourceRect.y = sliceHeight;
+  SDL_RenderCopy(renderer, sharedTexture, &sourceRect, &renderRect);
+
+  // draw the right
+  renderRect.x = destination->x + (destination->w - sliceWidth);
+  renderRect.y = destination->y + sliceHeight;
+  renderRect.w = sliceWidth;
+  renderRect.h = (destination->h - (2 * sliceHeight));
+  sourceRect.x = sliceWidth * 2;
+  sourceRect.y = sliceHeight;
+  SDL_RenderCopy(renderer, sharedTexture, &sourceRect, &renderRect);
+
+  renderRect.w = sliceWidth;
+  renderRect.h = sliceHeight;
+
+  // draw the top left
+  sourceRect.x = 0;
+  sourceRect.y = 0;
+  renderRect.x = destination->x;
+  renderRect.y = destination->y;
+  SDL_RenderCopy(renderer, sharedTexture, &sourceRect, &renderRect);
+
+  // draw the top right
+  sourceRect.x = sliceWidth * 2;
+  sourceRect.y = 0;
+  renderRect.x = destination->x + (destination->w - sliceWidth);
+  renderRect.y = destination->y;
+  SDL_RenderCopy(renderer, sharedTexture, &sourceRect, &renderRect);
+
+  // draw the bottom left
+  sourceRect.x = 0;
+  sourceRect.y = sliceHeight * 2;
+  renderRect.x = destination->x;
+  renderRect.y = destination->y + (destination->h - sliceHeight);
+  SDL_RenderCopy(renderer, sharedTexture, &sourceRect, &renderRect);
+
+  // draw the bottom right
+  sourceRect.x = sliceWidth * 2;
+  sourceRect.y = sliceHeight * 2;
+  renderRect.x = destination->x + (destination->w - sliceWidth);
+  renderRect.y = destination->y + (destination->h - sliceHeight);
+  SDL_RenderCopy(renderer, sharedTexture, &sourceRect, &renderRect);
+}
 
 
 class Game {
@@ -449,6 +569,8 @@ class Game {
     Tileset* tileset;
 
     Sprite* player;
+
+    NinePatch* dialoguePanel;
 
     Game(int argc, char* argv[]);
     ~Game();
@@ -478,6 +600,7 @@ Game::~Game() {
   delete content;
   delete tileset;
   delete player;
+  delete dialoguePanel;
 }
 
 bool Game::preload() {
@@ -525,6 +648,7 @@ bool Game::preload() {
   content = new Content(sdlRenderer);
   content->loadTexture("content/terrain.png", "terrain");
   content->loadTexture("content/protagonist.png", "player");
+  content->loadTexture("content/panel.png", "panel");
 
   content->loadFont("content/quickly.ttf", "default", 16);
 
@@ -539,6 +663,8 @@ bool Game::preload() {
 }
 
 bool Game::create() {
+  dialoguePanel = new NinePatch(content->getTexture("panel"));
+
   player = new Sprite(content->getTexture("player"), 64, 64);
 
   SDL_Rect walkNorthRegion;
@@ -775,15 +901,21 @@ void Game::render() {
 
   player->draw(sdlRenderer);
 
+  SDL_Rect panelRect;
+  panelRect.w = SCREEN_WIDTH * 0.95;
+  panelRect.h = SCREEN_HEIGHT * 0.23;
+  panelRect.x = (SCREEN_WIDTH - panelRect.w) / 2;
+  panelRect.y = (SCREEN_HEIGHT - (panelRect.h + 16));
+  dialoguePanel->draw(sdlRenderer, &panelRect);
 
   TTF_Font* font = content->getFont("default");
   SDL_Color white { 255, 255, 255, 255 };
-  SDL_Surface* textSurface = TTF_RenderText_Solid(font, "Yet Another RPG Project v1.0", white);
+  SDL_Surface* textSurface = TTF_RenderText_Solid(font, "Funny-looking-guy: You have no idea how hard this is to code...", white);
   SDL_Texture* textTexture = SDL_CreateTextureFromSurface(sdlRenderer, textSurface);
   SDL_FreeSurface(textSurface);
 
-  destRect.x = 16;
-  destRect.y = 16;
+  destRect.x = panelRect.x + 16;
+  destRect.y = panelRect.y + 16;
   SDL_QueryTexture(textTexture, NULL, NULL, &destRect.w, &destRect.h);
   SDL_RenderCopy(sdlRenderer, textTexture, NULL, &destRect);
 
