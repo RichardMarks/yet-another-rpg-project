@@ -17,6 +17,21 @@ static const unsigned WINDOW_WIDTH = 1920;
 static const unsigned WINDOW_HEIGHT = 1080;
 #endif
 
+
+static const unsigned mm[] = { 0, 0, 1, 3, 1, 2, 0, 0, 3, 1, 5, 5, 5, 4, 0, 0, 2, 1, 4, 5, 4, 4 };
+static const float mt[] = { 0, 0.0f, 1.0f, -1.0f, 0.7071067811865475f, -0.7071067811865475f };
+
+
+static const unsigned north = 0;
+static const unsigned northEast = 1;
+static const unsigned east = 2;
+static const unsigned southEast = 3;
+static const unsigned south = 4;
+static const unsigned southWest = 5;
+static const unsigned west = 6;
+static const unsigned northWest = 7;
+
+
 class Content {
   private:
     SDL_Renderer* sharedRenderer;
@@ -556,7 +571,6 @@ void NinePatch::draw(SDL_Renderer* renderer, SDL_Rect* destination) {
   SDL_RenderCopy(renderer, sharedTexture, &sourceRect, &renderRect);
 }
 
-
 class Game {
   public:
     SDL_Window* sdlWindow;
@@ -569,6 +583,15 @@ class Game {
     Tileset* tileset;
 
     Sprite* player;
+    Sprite* npc;
+    unsigned npcPath[2048];
+    unsigned npcIP;
+    float npcTimeToWait;
+    float npcTimeWaited;
+    unsigned npcState;
+    unsigned npcDistanceToMove;
+    unsigned npcDistanceMoved;
+    unsigned npcDirection;
 
     NinePatch* dialoguePanel;
 
@@ -577,10 +600,15 @@ class Game {
 
     bool preload();
     bool create();
+    bool createUI();
+    bool createPlayer();
+    bool createNPC();
     void unload();
     int run();
     void processEvents();
     void update();
+    void updateNPC();
+    void moveNPC(unsigned direction, bool stopped);
     void render();
 
     SDL_Texture* loadTexture(const char* path);
@@ -601,6 +629,7 @@ Game::~Game() {
   delete tileset;
   delete player;
   delete dialoguePanel;
+  delete npc;
 }
 
 bool Game::preload() {
@@ -649,6 +678,7 @@ bool Game::preload() {
   content->loadTexture("content/terrain.png", "terrain");
   content->loadTexture("content/protagonist.png", "player");
   content->loadTexture("content/panel.png", "panel");
+  content->loadTexture("content/npc_male.png", "npc-male");
 
   content->loadFont("content/quickly.ttf", "default", 16);
 
@@ -663,7 +693,22 @@ bool Game::preload() {
 }
 
 bool Game::create() {
+  if (!createUI()) { return false; }
+  if (!createPlayer()) { return false; }
+  if (!createNPC()) { return false; }
+
+  // std::cout << "placing player at " << player->x << ", " << player->y << std::endl;
+
+  return true;
+}
+
+bool Game::createUI() {
   dialoguePanel = new NinePatch(content->getTexture("panel"));
+
+  return true;
+}
+
+bool Game::createPlayer() {
 
   player = new Sprite(content->getTexture("player"), 64, 64);
 
@@ -724,7 +769,116 @@ bool Game::create() {
   player->x = (SCREEN_WIDTH - player->width) / 2;
   player->y = (SCREEN_HEIGHT - player->height) / 2;
 
-  // std::cout << "placing player at " << player->x << ", " << player->y << std::endl;
+  return true;
+}
+
+bool Game::createNPC() {
+  npc = new Sprite(content->getTexture("npc-male"), 64, 64);
+
+  SDL_Rect walkNorthRegion;
+  SDL_Rect walkSouthRegion;
+  SDL_Rect walkWestRegion;
+  SDL_Rect walkEastRegion;
+
+  walkNorthRegion.x = 0;
+  walkNorthRegion.y = 64 * 8;
+  walkNorthRegion.w = 64 * 9;
+  walkNorthRegion.h = 64;
+
+  walkSouthRegion.x = 0;
+  walkSouthRegion.y = 64 * 10;
+  walkSouthRegion.w = 64 * 9;
+  walkSouthRegion.h = 64;
+
+  walkWestRegion.x = 0;
+  walkWestRegion.y = 64 * 9;
+  walkWestRegion.w = 64 * 9;
+  walkWestRegion.h = 64;
+
+  walkEastRegion.x = 0;
+  walkEastRegion.y = 64 * 11;
+  walkEastRegion.w = 64 * 9;
+  walkEastRegion.h = 64;
+
+  unsigned walkNorthFrames[] = { 1, 2, 3, 4, 5, 6, 7, 8 };
+  unsigned walkSouthFrames[] = { 1, 2, 3, 4, 5, 6, 7, 8 };
+  unsigned walkWestFrames[] = { 1, 2, 3, 4, 5, 6, 7, 8 };
+  unsigned walkEastFrames[] = { 1, 2, 3, 4, 5, 6, 7, 8 };
+
+  unsigned walkNorthCount = sizeof(walkNorthFrames) / sizeof(unsigned);
+  unsigned walkSouthCount = sizeof(walkSouthFrames) / sizeof(unsigned);
+  unsigned walkWestCount = sizeof(walkWestFrames) / sizeof(unsigned);
+  unsigned walkEastCount = sizeof(walkEastFrames) / sizeof(unsigned);
+
+  npc->addAnimation("walkNorth", walkNorthCount, walkNorthFrames, &walkNorthRegion);
+  npc->addAnimation("walkSouth", walkSouthCount, walkSouthFrames, &walkSouthRegion);
+  npc->addAnimation("walkWest", walkWestCount, walkWestFrames, &walkWestRegion);
+  npc->addAnimation("walkEast", walkEastCount, walkEastFrames, &walkEastRegion);
+
+  npc->addAnimation("walkNorthWest", walkNorthCount, walkNorthFrames, &walkNorthRegion);
+  npc->addAnimation("walkSouthWest", walkSouthCount, walkSouthFrames, &walkSouthRegion);
+  npc->addAnimation("walkNorthEast", walkNorthCount, walkNorthFrames, &walkNorthRegion);
+  npc->addAnimation("walkSouthEast", walkSouthCount, walkSouthFrames, &walkSouthRegion);
+
+
+  unsigned faceFrames[] = { 0 };
+  npc->addAnimation("faceNorth", 1, faceFrames, &walkNorthRegion);
+  npc->addAnimation("faceSouth", 1, faceFrames, &walkSouthRegion);
+  npc->addAnimation("faceWest", 1, faceFrames, &walkWestRegion);
+  npc->addAnimation("faceEast", 1, faceFrames, &walkEastRegion);
+
+  npc->selectAnimation("faceSouth");
+
+  npc->x = (SCREEN_WIDTH - npc->width) / 4;
+  npc->y = (SCREEN_HEIGHT - npc->height) / 4;
+
+
+  memset(npcPath, 0, 2048 * sizeof(unsigned));
+
+  unsigned p = 0;
+  auto pushMoveCommand = [&p](unsigned* path, unsigned direction, unsigned distance) {
+    path[p + 0] = 0x1a;
+    path[p + 1] = direction;
+    path[p + 2] = distance;
+    p += 3;
+  };
+
+  auto pushWaitCommand = [&p](unsigned* path, unsigned duration) {
+    path[p + 0] = 0x2b;
+    path[p + 1] = duration;
+    p += 2;
+  };
+
+  auto pushTurnCommand = [&p](unsigned* path, unsigned direction) {
+    path[p + 0] = 0x3c;
+    path[p + 1] = direction;
+    p += 2;
+  };
+
+  auto pushRepeatCommand = [&p](unsigned* path) {
+    path[p + 0] = 0x4d;
+    p += 1;
+  };
+
+  pushTurnCommand(npcPath, east);
+  pushMoveCommand(npcPath, east, 8);
+  pushWaitCommand(npcPath, 1500);
+
+  pushTurnCommand(npcPath, south);
+  pushMoveCommand(npcPath, south, 4);
+  pushWaitCommand(npcPath, 1500);
+
+  pushTurnCommand(npcPath, west);
+  pushMoveCommand(npcPath, west, 8);
+  pushWaitCommand(npcPath, 1500);
+
+  pushTurnCommand(npcPath, north);
+  pushMoveCommand(npcPath, north, 4);
+  pushWaitCommand(npcPath, 1500);
+
+  pushRepeatCommand(npcPath);
+
+  npcIP = 0;
 
   return true;
 }
@@ -773,12 +927,11 @@ void Game::processEvents() {
 }
 
 void Game::update() {
+  updateNPC();
+
   bool moving = false;
 
   const unsigned char* keys = SDL_GetKeyboardState(NULL);
-
-  static const unsigned mm[] = { 0, 0, 1, 3, 1, 2, 0, 0, 3, 1, 5, 5, 5, 4, 0, 0, 2, 1, 4, 5, 4, 4 };
-  static const float mt[] = { 0, 0.0f, 1.0f, -1.0f, 0.7071067811865475f, -0.7071067811865475f };
 
   unsigned mcc = 0x00;
 
@@ -872,7 +1025,205 @@ void Game::update() {
     player->gotoAndStop(0);
   }
 
-  player->update(0.033f);
+  float deltaTime = 0.033f;
+  player->update(deltaTime);
+}
+
+void Game::updateNPC() {
+  switch (npcState) {
+    // moving
+    case 0x10: {
+      moveNPC(npcDirection, false);
+      npcDistanceMoved += 1;
+      // std::cerr << "moving " << npcDistanceMoved << "/" << npcDistanceToMove << std::endl;
+      if (npcDistanceMoved >= npcDistanceToMove) {
+        moveNPC(npcDirection, true);
+        npcState = 0xff;
+      }
+    } break;
+
+    // waiting
+    case 0x20: {
+      npcTimeWaited += 0.033f;
+      if (npcTimeWaited >= npcTimeToWait) {
+        npcState = 0xff;
+      }
+    } break;
+
+    // processing
+    default: {
+      unsigned nextCommand = npcPath[npcIP];
+      switch (nextCommand) {
+        // move
+        case 0x1a: {
+          std::cerr << "move command" << std::endl;
+          unsigned direction = npcPath[npcIP + 1];
+          unsigned distance = npcPath[npcIP + 2];
+          npcDistanceToMove = distance * 16;
+          npcDistanceMoved = 0;
+          npcDirection = direction;
+
+          moveNPC(npcDirection, false);
+
+          npcState = 0x10;
+          npcIP += 3;
+        } break;
+
+        // wait
+        case 0x2b: {
+          std::cerr << "wait command" << std::endl;
+          unsigned duration = npcPath[npcIP + 1];
+          npcTimeToWait = (float)duration * 0.001f;
+          npcTimeWaited = 0;
+          npcState = 0x20;
+          npcIP += 2;
+        } break;
+
+        // turn
+        case 0x3c: {
+          std::cerr << "turn command" << std::endl;
+          unsigned direction = npcPath[npcIP + 1];
+          if (direction == north || direction == northWest || direction == northEast) {
+            npc->selectAnimation("faceNorth");
+          } else if (direction == south || direction == southWest || direction == southEast) {
+            npc->selectAnimation("faceSouth");
+          } else if (direction == west) {
+            npc->selectAnimation("faceWest");
+          } else if (direction == east) {
+            npc->selectAnimation("faceEast");
+          }
+
+          npc->gotoAndStop(0);
+          npcIP += 2;
+        } break;
+
+        // repeat
+        case 0x4d: {
+          std::cerr << "repeat command" << std::endl;
+          npcIP = 0;
+        } break;
+
+        default: {
+          std::cerr << "unknown command " << nextCommand << std::endl;
+        } break;
+      }
+    } break;
+  }
+}
+
+void Game::moveNPC(unsigned direction, bool stopped) {
+  unsigned NPC_UP = 0;
+  unsigned NPC_DOWN = 1;
+  unsigned NPC_LEFT = 2;
+  unsigned NPC_RIGHT = 3;
+
+  unsigned keys[] = { 0, 0, 0, 0 };
+
+  if (!stopped) {
+    switch (direction) {
+      case north: { keys[NPC_UP] = 1; } break;
+      case northEast: { keys[NPC_UP] = 1; keys[NPC_RIGHT] = 1; } break;
+      case east: { keys[NPC_RIGHT] = 1; } break;
+      case southEast: { keys[NPC_RIGHT] = 1; keys[NPC_DOWN] = 1; } break;
+      case south: { keys[NPC_DOWN] = 1; } break;
+      case southWest: { keys[NPC_DOWN] = 1; keys[NPC_LEFT] = 1; } break;
+      case west: { keys[NPC_LEFT] = 1; } break;
+      case northWest: { keys[NPC_LEFT] = 1; keys[NPC_UP] = 1; } break;
+      default: break;
+    }
+  }
+
+  bool moving = false;
+
+  unsigned mcc = 0x00;
+
+  if (keys[NPC_UP]) {
+    mcc |= 0x02;
+    if (!npc->isAnimation("walkNorth")) {
+      npc->selectAnimation("walkNorth");
+      npc->gotoAndPlay(0);
+    }
+  } else if (keys[NPC_DOWN]) {
+    mcc |= 0x04;
+    if (!npc->isAnimation("walkSouth")) {
+      npc->selectAnimation("walkSouth");
+      npc->gotoAndPlay(0);
+    }
+  }
+
+  if (keys[NPC_LEFT]) {
+    mcc |= 0x08;
+
+    if (mcc & 0x02) {
+      if (!npc->isAnimation("walkNorthWest")) {
+        npc->selectAnimation("walkNorthWest");
+        npc->gotoAndPlay(0);
+      }
+    } else if (mcc & 0x04) {
+      if (!npc->isAnimation("walkSouthWest")) {
+        npc->selectAnimation("walkSouthWest");
+        npc->gotoAndPlay(0);
+      }
+    } else {
+      if (!npc->isAnimation("walkWest")) {
+        npc->selectAnimation("walkWest");
+        npc->gotoAndPlay(0);
+      }
+    }
+  } else if (keys[NPC_RIGHT]) {
+    mcc |= 0x10;
+
+    if (mcc & 0x02) {
+      if (!npc->isAnimation("walkNorthEast")) {
+        npc->selectAnimation("walkNorthEast");
+        npc->gotoAndPlay(0);
+      }
+    } else if (mcc & 0x04) {
+      if (!npc->isAnimation("walkSouthEast")) {
+        npc->selectAnimation("walkSouthEast");
+        npc->gotoAndPlay(0);
+      }
+    } else {
+      if (!npc->isAnimation("walkEast")) {
+        npc->selectAnimation("walkEast");
+        npc->gotoAndPlay(0);
+      }
+    }
+  }
+
+  float mx = mt[mm[mcc]];
+  float my = mt[mm[mcc + 1]];
+
+  float speed = 48.0f;
+
+  npc->setDuration(1.0f);
+
+  mx *= speed;
+  my *= speed;
+
+  npc->xv = mx;
+  npc->yv = my;
+
+  moving = mcc != 0x00;
+
+  if (!moving) {
+    if (npc->isAnimation("walkNorth") || npc->isAnimation("walkNorthWest") || npc->isAnimation("walkNorthEast")) {
+      npc->selectAnimation("faceNorth");
+    } else if (npc->isAnimation("walkSouth") || npc->isAnimation("walkSouthWest") || npc->isAnimation("walkSouthEast")) {
+      npc->selectAnimation("faceSouth");
+    } else if (npc->isAnimation("walkWest")) {
+      npc->selectAnimation("faceWest");
+    } else if (npc->isAnimation("walkEast")) {
+      npc->selectAnimation("faceEast");
+    }
+
+    npc->gotoAndStop(0);
+  }
+
+  // std::cerr << "update mcc " << mcc << std::endl;
+
+  float deltaTime = 0.033f;
+  npc->update(deltaTime);
 }
 
 void Game::render() {
@@ -899,7 +1250,14 @@ void Game::render() {
     f = !f;
   }
 
-  player->draw(sdlRenderer);
+  // TODO: proper renderlist with Y sorting of sprites
+  if (player->y > npc->y) {
+    npc->draw(sdlRenderer);
+    player->draw(sdlRenderer);
+  } else {
+    player->draw(sdlRenderer);
+    npc->draw(sdlRenderer);
+  }
 
   SDL_Rect panelRect;
   panelRect.w = SCREEN_WIDTH * 0.95;
