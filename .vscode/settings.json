@@ -21,6 +21,9 @@
     "locale": "cpp",
     "tuple": "cpp",
     "utility": "cpp",
-    "iterator": "cpp"
+    "iterator": "cpp",
+    "bitset": "cpp",
+    "atomic": "cpp",
+    "system_error": "cpp"
   }
 }

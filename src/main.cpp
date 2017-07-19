@@ -6,10 +6,10 @@
 #include <SDL_ttf.h>
 
 #ifdef IS_DEBUG
-static const unsigned SCREEN_WIDTH = 2*256; // 1920;
-static const unsigned SCREEN_HEIGHT = 2*244; // 1080;
+static const unsigned SCREEN_WIDTH = 256; // 1920;
+static const unsigned SCREEN_HEIGHT = 244; // 1080;
 static const unsigned WINDOW_WIDTH = 256 * 3; // 1920 / 2;
-static const unsigned WINDOW_HEIGHT = 244 * 3; // 1080 / 2;
+static const unsigned WINDOW_HEIGHT = 244 * 2; // 1080 / 2;
 #else
 static const unsigned SCREEN_WIDTH = 1920;
 static const unsigned SCREEN_HEIGHT = 1080;
@@ -168,6 +168,7 @@ class Tileset {
     Tileset(SDL_Texture* atlas, unsigned tileWidth, unsigned tileHeight);
     ~Tileset();
     void setAtlas(SDL_Texture* atlas);
+    void slice();
     void load(unsigned count, unsigned* data);
     unsigned addTile(unsigned x, unsigned y);
     void drawTile(SDL_Renderer* renderer, unsigned tileId, SDL_Rect* destination);
@@ -184,6 +185,32 @@ Tileset::~Tileset() {
 
 void Tileset::setAtlas(SDL_Texture* atlas) {
   sharedAtlas = atlas;
+}
+
+void Tileset::slice() {
+  tiles.clear();
+
+  int w, h;
+  SDL_QueryTexture(sharedAtlas, NULL, NULL, &w, &h);
+
+  unsigned columns = w / width;
+  unsigned rows = h / height;
+  unsigned y;
+
+  for (unsigned row = 0; row < rows; row += 1) {
+    y = row * height;
+
+    for (unsigned column = 0; column < columns; column += 1) {
+      SDL_Rect tile;
+
+      tile.x = column * width;
+      tile.y = y;
+      tile.w = width;
+      tile.h = height;
+
+      tiles.push_back(tile);
+    }
+  }
 }
 
 void Tileset::load(unsigned count, unsigned* data) {
@@ -464,6 +491,7 @@ class NinePatch {
     NinePatch(SDL_Texture* texture, unsigned sliceWidth, unsigned sliceHeight);
     ~NinePatch();
 
+    void setAlpha(Uint8 alpha);
     void draw(SDL_Renderer* renderer, SDL_Rect* destination);
 };
 
@@ -491,6 +519,16 @@ NinePatch::NinePatch(SDL_Texture* texture, unsigned sliceWidth, unsigned sliceHe
 
 NinePatch::~NinePatch() {
 
+}
+
+void NinePatch::setAlpha(Uint8 alpha) {
+  if (alpha != 0xFF) {
+    SDL_SetTextureBlendMode(sharedTexture, SDL_BLENDMODE_BLEND);
+    SDL_SetTextureAlphaMod(sharedTexture, alpha);
+  } else {
+    SDL_SetTextureBlendMode(sharedTexture, SDL_BLENDMODE_NONE);
+    SDL_SetTextureAlphaMod(sharedTexture, 0xFF);
+  }
 }
 
 void NinePatch::draw(SDL_Renderer* renderer, SDL_Rect* destination) {
@@ -571,6 +609,114 @@ void NinePatch::draw(SDL_Renderer* renderer, SDL_Rect* destination) {
   SDL_RenderCopy(renderer, sharedTexture, &sourceRect, &renderRect);
 }
 
+class Tilemap {
+  private:
+    unsigned* base;
+    unsigned* object;
+    unsigned* event;
+    char* collision;
+
+  public:
+    unsigned width;
+    unsigned height;
+
+    Tilemap(unsigned width, unsigned height);
+    ~Tilemap();
+
+    inline unsigned xyToIndex(unsigned x, unsigned y) {
+      return x + (y * width);
+    }
+
+    inline void indexToXY(unsigned index, unsigned* x, unsigned* y) {
+      *x = index % width;
+      *y = index / width;
+    }
+
+    unsigned getBaseValue(unsigned x, unsigned y);
+    unsigned getObjectValue(unsigned x, unsigned y);
+    unsigned getEventValue(unsigned x, unsigned y);
+    char getCollisionValue(unsigned x, unsigned y);
+
+    void setBaseValue(unsigned x, unsigned y, unsigned value);
+    void setObjectValue(unsigned x, unsigned y, unsigned value);
+    void setEventValue(unsigned x, unsigned y, unsigned value);
+    void setCollisionValue(unsigned x, unsigned y, char value);
+
+    inline unsigned* getBase() { return base; }
+    inline unsigned* getObject() { return object; }
+    inline unsigned* getEvent() { return event; }
+    inline char* getCollision() { return collision; }
+
+    void setBase(unsigned* values);
+    void setCollision(unsigned* values);
+};
+
+Tilemap::Tilemap(unsigned width, unsigned height) {
+  this->width = width;
+  this->height = height;
+
+  unsigned size = width * height;
+  base = new unsigned[size];
+  object = new unsigned[size];
+  event = new unsigned[size];
+  collision = new char[size];
+}
+
+Tilemap::~Tilemap() {
+  delete [] base;
+  delete [] object;
+  delete [] event;
+  delete [] collision;
+}
+
+unsigned Tilemap::getBaseValue(unsigned x, unsigned y) {
+  return base[xyToIndex(x, y)];
+}
+
+unsigned Tilemap::getObjectValue(unsigned x, unsigned y) {
+  return object[xyToIndex(x, y)];
+}
+
+unsigned Tilemap::getEventValue(unsigned x, unsigned y) {
+  return event[xyToIndex(x, y)];
+}
+
+char Tilemap::getCollisionValue(unsigned x, unsigned y) {
+  return collision[xyToIndex(x, y)];
+}
+
+void Tilemap::setBaseValue(unsigned x, unsigned y, unsigned value) {
+  base[xyToIndex(x, y)] = value;
+}
+
+void Tilemap::setObjectValue(unsigned x, unsigned y, unsigned value) {
+  object[xyToIndex(x, y)] = value;
+}
+
+void Tilemap::setEventValue(unsigned x, unsigned y, unsigned value) {
+  event[xyToIndex(x, y)] = value;
+}
+
+void Tilemap::setCollisionValue(unsigned x, unsigned y, char value) {
+  collision[xyToIndex(x, y)] = value;
+}
+
+void Tilemap::setBase(unsigned* values) {
+  unsigned size = width * height;
+
+  for (unsigned i = 0; i < size; i += 1) {
+    base[i] = values[i];
+  }
+}
+
+void Tilemap::setCollision(unsigned* values) {
+  unsigned size = width * height;
+
+  for (unsigned i = 0; i < size; i += 1) {
+    collision[i] = values[i];
+  }
+}
+
 class Game {
   public:
     SDL_Window* sdlWindow;
@@ -581,6 +727,7 @@ class Game {
 
     Content* content;
     Tileset* tileset;
+    Tilemap* tilemap;
 
     Sprite* player;
     Sprite* npc;
@@ -630,6 +777,7 @@ Game::~Game() {
   delete player;
   delete dialoguePanel;
   delete npc;
+  delete tilemap;
 }
 
 bool Game::preload() {
@@ -682,13 +830,6 @@ bool Game::preload() {
 
   content->loadFont("content/quickly.ttf", "default", 16);
 
-  tileset = new Tileset(content->getTexture("terrain"), 32, 32);
-  unsigned tiles[] = {
-    32*1, 32*11,
-    32*1, 32*9
-  };
-  tileset->load(2, tiles);
-
   return true;
 }
 
@@ -697,6 +838,33 @@ bool Game::create() {
   if (!createPlayer()) { return false; }
   if (!createNPC()) { return false; }
 
+  tileset = new Tileset(content->getTexture("terrain"), 32, 32);
+  tileset->slice();
+
+  tilemap = new Tilemap(17, 16);
+
+  // TODO: load tilemap from file maybe from tmx or compile tmx to proprietary binary?
+  unsigned testmap[] = {
+    191,191,191,234,191,234,191,191,191,191,191,233,191,245,191,191,191,
+    191,234,191,191,191,191,191,191,233,191,191,236,191,191,191,233,191,
+    191,191,191,236,191,234,191,191,191,191,191,191,191,191,191,237,191,
+    245,191,191,234,191,232,191,191,233,191,191,233,191,233,191,191,191,
+    191,191,236,191,191,191,191,191,191,191,191,191,191,236,233,191,191,
+    191,191,191,191,191,191,233,191,233,191,191,191,191,191,233,233,191,
+    191,232,191,191,233,191,191,191,191,245,191,234,191,191,191,191,191,
+    236,191,191,191,191,233,191,191,191,191,191,191,191,232,191,234,191,
+    191,191,191,233,233,191,245,191,191,234,233,191,191,191,233,191,234,
+    191,191,191,233,191,234,191,191,191,191,191,191,191,191,191,236,191,
+    191,233,233,191,233,233,191,191,233,191,191,191,233,191,234,191,191,
+    233,233,233,191,191,191,191,191,191,191,234,191,191,236,191,191,234,
+    191,191,191,234,191,191,232,191,191,191,191,191,245,191,232,191,191,
+    233,191,236,191,191,191,191,191,191,191,233,234,301,302,302,302,303,
+    191,191,233,245,191,233,191,191,191,301,302,302,282,323,124,323,281,
+    191,191,191,191,191,191,191,191,233,322,323,124,323,126,323,323,126
+  };
+
+  tilemap->setBase(testmap);
+
   // std::cout << "placing player at " << player->x << ", " << player->y << std::endl;
 
   return true;
@@ -704,6 +872,7 @@ bool Game::create() {
 
 bool Game::createUI() {
   dialoguePanel = new NinePatch(content->getTexture("panel"));
+  dialoguePanel->setAlpha(192);
 
   return true;
 }
@@ -1230,8 +1399,14 @@ void Game::render() {
   SDL_SetRenderDrawColor(sdlRenderer, 30, 60, 90, 255);
   SDL_RenderClear(sdlRenderer);
 
-  static const unsigned ROWS = (unsigned)ceil(0.5 + SCREEN_WIDTH / 32);
-  static const unsigned COLUMNS = (unsigned)ceil(0.5 + SCREEN_HEIGHT / 32);
+  // static const unsigned ROWS = (unsigned)ceil(0.5 + SCREEN_WIDTH / 32);
+  // static const unsigned COLUMNS = (unsigned)ceil(0.5 + SCREEN_HEIGHT / 32);
+  static const unsigned ROWS = 17;
+  static const unsigned COLUMNS = 16;
+
+  // 17x16
+  // std::cout << "" << ROWS << "x" << COLUMNS << std::endl;
+
 
   SDL_Rect destRect;
   destRect.w = tileset->width;
@@ -1239,11 +1414,12 @@ void Game::render() {
 
   bool f = true;
   for (unsigned row = 0; row < ROWS; row += 1) {
-    destRect.y = row * tileset->height;
+    destRect.y = row * destRect.h;
     for (unsigned column = 0; column < COLUMNS; column += 1) {
-      destRect.x = column * tileset->width;
+      destRect.x = column * destRect.w;
 
-      unsigned tileId = f ? 0 : 1;
+      // unsigned tileId = f ? 0 : 1;
+      unsigned tileId = tilemap->getBaseValue(column, row) - 1;
       tileset->drawTile(sdlRenderer, tileId, &destRect);
       f = !f;
     }
@@ -1261,19 +1437,25 @@ void Game::render() {
 
   SDL_Rect panelRect;
   panelRect.w = SCREEN_WIDTH * 0.95;
-  panelRect.h = SCREEN_HEIGHT * 0.23;
+  panelRect.h = SCREEN_HEIGHT * 0.33;
   panelRect.x = (SCREEN_WIDTH - panelRect.w) / 2;
-  panelRect.y = (SCREEN_HEIGHT - (panelRect.h + 16));
+  panelRect.y = (SCREEN_HEIGHT - (panelRect.h + 8));
   dialoguePanel->draw(sdlRenderer, &panelRect);
 
   TTF_Font* font = content->getFont("default");
   SDL_Color white { 255, 255, 255, 255 };
-  SDL_Surface* textSurface = TTF_RenderText_Solid(font, "Funny-looking-guy: You have no idea how hard this is to code...", white);
+  // SDL_Surface* textSurface = TTF_RenderText_Solid(font, "Funny-looking-guy: You have no idea how hard this is to code...", white);
+
+  // 16 capital letters is the "safe" length for a line of dialogue
+  // up to 4 lines of dialogue per "page"
+
+  SDL_Surface* textSurface = TTF_RenderText_Solid(font, "Yet Another RPG Project...", white);
+
   SDL_Texture* textTexture = SDL_CreateTextureFromSurface(sdlRenderer, textSurface);
   SDL_FreeSurface(textSurface);
 
-  destRect.x = panelRect.x + 16;
-  destRect.y = panelRect.y + 16;
+  destRect.x = panelRect.x + 8;
+  destRect.y = panelRect.y + 8;
   SDL_QueryTexture(textTexture, NULL, NULL, &destRect.w, &destRect.h);
   SDL_RenderCopy(sdlRenderer, textTexture, NULL, &destRect);
 
